@@ -1371,10 +1371,9 @@ public class DatastoreV1 {
                 "Enforce ramp-up through throttling",
                 ParDo.of(rampupThrottlingFn).withSideInputs(startTimestampView));
       }
-      intermediateOutput.apply(
-          "Write Mutation to Datastore", ParDo.of(new DatastoreWriterFn(projectId, localhost)));
-
-      return PDone.in(input.getPipeline());
+      return intermediateOutput .apply(
+              "Write Mutation to Datastore", ParDo.of(new DatastoreWriterFn(projectId, localhost)))
+          .setCoder(VoidCoder.of());
     }
 
     @Override
