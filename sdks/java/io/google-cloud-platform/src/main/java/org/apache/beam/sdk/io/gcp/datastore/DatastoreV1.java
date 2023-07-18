@@ -71,6 +71,7 @@ import org.apache.beam.runners.core.metrics.MonitoringInfoConstants;
 import org.apache.beam.runners.core.metrics.ServiceCallMetric;
 import org.apache.beam.sdk.PipelineRunner;
 import org.apache.beam.sdk.coders.StringUtf8Coder;
+import org.apache.beam.sdk.coders.VoidCoder;
 import org.apache.beam.sdk.extensions.gcp.options.GcpOptions;
 import org.apache.beam.sdk.extensions.gcp.util.RetryHttpRequestInitializer;
 import org.apache.beam.sdk.metrics.Counter;
@@ -97,7 +98,6 @@ import org.apache.beam.sdk.values.KV;
 import org.apache.beam.sdk.values.PBegin;
 import org.apache.beam.sdk.values.PCollection;
 import org.apache.beam.sdk.values.PCollectionView;
-import org.apache.beam.sdk.values.PDone;
 import org.apache.beam.sdk.values.TypeDescriptor;
 import org.apache.beam.vendor.guava.v26_0_jre.com.google.common.annotations.VisibleForTesting;
 import org.apache.beam.vendor.guava.v26_0_jre.com.google.common.base.MoreObjects;
@@ -1309,7 +1309,7 @@ public class DatastoreV1 {
    * idempotent Cloud Datastore mutation operations (upsert and delete) should be used by the {@code
    * DoFn} provided, as the commits are retried when failures occur.
    */
-  private abstract static class Mutate<T> extends PTransform<PCollection<T>, PDone> {
+  private abstract static class Mutate<T> extends PTransform<PCollection<T>, PCollection<Void>> {
 
     protected ValueProvider<String> projectId;
     protected @Nullable String localhost;
@@ -1338,7 +1338,7 @@ public class DatastoreV1 {
     }
 
     @Override
-    public PDone expand(PCollection<T> input) {
+    public PCollection<Void> expand(PCollection<T> input) {
       checkArgument(projectId != null, "withProjectId() is required");
       if (projectId.isAccessible()) {
         checkArgument(projectId.get() != null, "projectId can not be null");
@@ -1371,7 +1371,7 @@ public class DatastoreV1 {
                 "Enforce ramp-up through throttling",
                 ParDo.of(rampupThrottlingFn).withSideInputs(startTimestampView));
       }
-      return intermediateOutput .apply(
+      return intermediateOutput.apply(
               "Write Mutation to Datastore", ParDo.of(new DatastoreWriterFn(projectId, localhost)))
           .setCoder(VoidCoder.of());
     }
