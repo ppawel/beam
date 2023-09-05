@@ -460,6 +460,7 @@ public class JmsIO {
     @Override
     public List<UnboundedJmsSource<T>> split(int desiredNumSplits, PipelineOptions options)
         throws Exception {
+      LOG.info("[{}] split called - numSplits = {}", this, desiredNumSplits);
       List<UnboundedJmsSource<T>> sources = new ArrayList<>();
       if (spec.getTopic() != null) {
         // in the case of a topic, we create a single source, so a unique subscriber, to avoid
@@ -467,7 +468,7 @@ public class JmsIO {
         sources.add(new UnboundedJmsSource<T>(spec));
       } else {
         // in the case of a queue, we allow concurrent consumers
-        for (int i = 0; i < desiredNumSplits; i++) {
+        for (int i = 0; i < 1; i++) {
           sources.add(new UnboundedJmsSource<T>(spec));
         }
       }
@@ -477,6 +478,7 @@ public class JmsIO {
     @Override
     public UnboundedJmsReader<T> createReader(
         PipelineOptions options, JmsCheckpointMark checkpointMark) {
+      LOG.info("[{}] createReader() called for {}", this, checkpointMark);
       return new UnboundedJmsReader<T>(this, options);
     }
 
@@ -513,6 +515,8 @@ public class JmsIO {
 
     @Override
     public boolean start() throws IOException {
+      LOG.info("start called");
+
       Read<T> spec = source.spec;
       ConnectionFactory connectionFactory = spec.getConnectionFactory();
       try {
@@ -545,6 +549,7 @@ public class JmsIO {
           this.consumer = this.session.createConsumer(this.session.createTopic(spec.getTopic()));
         } else {
           this.consumer = this.session.createConsumer(this.session.createQueue(spec.getQueue()));
+          LOG.info("[{} / {}] createConsumer", connection, consumer);
         }
       } catch (Exception e) {
         throw new IOException("Error creating JMS consumer", e);
@@ -556,7 +561,16 @@ public class JmsIO {
     @Override
     public boolean advance() throws IOException {
       try {
+          LOG.info("[{} / {}] advance [size = {}, current = {}, oldest = {}]", connection, consumer, checkpointMark.size(), currentTimestamp, checkpointMark.getOldestMessageTimestamp());
+
+          if (consumer == null) {
+            LOG.warn("[{} / {}] this.consumer == null [size = {}, current = {}, oldest = {}]", connection, consumer, checkpointMark.size(), currentTimestamp, checkpointMark.getOldestMessageTimestamp());
+            return false;
+          }
+
         Message message = this.consumer.receiveNoWait();
+
+          LOG.info("[{} / {}] received {}", connection, consumer, message);
 
         if (message == null) {
           currentMessage = null;
@@ -617,7 +631,7 @@ public class JmsIO {
 
     @SuppressWarnings("FutureReturnValueIgnored")
     private void doClose() {
-
+      LOG.info("[{} / {}] doClose() called [size = {}, current = {}]", connection, consumer, checkpointMark.size(), currentTimestamp);
       try {
         closeAutoscaler();
         closeConsumer();
@@ -625,7 +639,7 @@ public class JmsIO {
             options.as(ExecutorOptions.class).getScheduledExecutorService();
         executorService.schedule(
             () -> {
-              LOG.debug(
+              LOG.info(
                   "Closing session and connection after delay {}", source.spec.getCloseTimeout());
               // Discard the checkpoints and set the reader as inactive
               checkpointMark.discard();
@@ -641,6 +655,8 @@ public class JmsIO {
     }
 
     private void closeConnection() {
+      LOG.info("[{} / {} / {}] closeConnection() called", this, connection, consumer);
+
       try {
         if (connection != null) {
           connection.stop();
@@ -653,6 +669,8 @@ public class JmsIO {
     }
 
     private void closeSession() {
+      LOG.info("[{} / {} / {}] closeSession() called", this, connection, consumer);
+
       try {
         if (session != null) {
           session.close();
@@ -664,6 +682,8 @@ public class JmsIO {
     }
 
     private void closeConsumer() {
+      LOG.info("[{} / {} / {}] closeConsumer() called", this, connection, consumer);
+
       try {
         if (consumer != null) {
           consumer.close();
@@ -675,6 +695,8 @@ public class JmsIO {
     }
 
     private void closeAutoscaler() {
+      LOG.info("[{} / {} / {}] closeAutoscaler() called", this, connection, consumer);
+
       try {
         if (autoScaler != null) {
           autoScaler.stop();
@@ -687,6 +709,7 @@ public class JmsIO {
 
     @Override
     protected void finalize() {
+      LOG.info("[{} / {} / {}] finalize() called", this, connection, consumer);
       doClose();
     }
   }
