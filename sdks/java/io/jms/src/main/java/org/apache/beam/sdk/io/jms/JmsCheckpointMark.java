@@ -61,7 +61,7 @@ class JmsCheckpointMark implements UnboundedSource.CheckpointMark, Serializable 
         oldestMessageTimestamp = currentMessageTimestamp;
       }
       messages.add(message);
-      LOG.info("Checkpoint has {} message(s) - {}", messages.size(), this);
+      LOG.info("[{}] Checkpoint has {} message(s)", this, messages.size());
     } finally {
       lock.writeLock().unlock();
     }
@@ -105,7 +105,7 @@ class JmsCheckpointMark implements UnboundedSource.CheckpointMark, Serializable 
     lock.writeLock().lock();
     try {
       if (!messages.isEmpty()) {
-        LOG.info("finalize called with {} message(s) - {} [discarded = {}]", messages.size(), this, discarded);
+        LOG.info("[{}] finalizeCheckpoint() called with {} message(s) [discarded = {}]", this, messages.size(), discarded);
       }
       if (discarded) {
         messages.clear();
