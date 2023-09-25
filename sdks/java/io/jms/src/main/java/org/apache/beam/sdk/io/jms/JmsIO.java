@@ -515,7 +515,7 @@ public class JmsIO {
 
     @Override
     public boolean start() throws IOException {
-      LOG.info("start called");
+      LOG.info("[{}] start() called", this);
 
       Read<T> spec = source.spec;
       ConnectionFactory connectionFactory = spec.getConnectionFactory();
@@ -549,7 +549,7 @@ public class JmsIO {
           this.consumer = this.session.createConsumer(this.session.createTopic(spec.getTopic()));
         } else {
           this.consumer = this.session.createConsumer(this.session.createQueue(spec.getQueue()));
-          LOG.info("[{} / {}] createConsumer", connection, consumer);
+          LOG.info("[{} / {} / {}] createConsumer", this, connection, consumer);
         }
       } catch (Exception e) {
         throw new IOException("Error creating JMS consumer", e);
@@ -561,16 +561,16 @@ public class JmsIO {
     @Override
     public boolean advance() throws IOException {
       try {
-          LOG.info("[{} / {}] advance [size = {}, current = {}, oldest = {}]", connection, consumer, checkpointMark.size(), currentTimestamp, checkpointMark.getOldestMessageTimestamp());
+          LOG.trace("[{} / {} / {}] advance [size = {}, current = {}, oldest = {}]", this, connection, consumer, checkpointMark.size(), currentTimestamp, checkpointMark.getOldestMessageTimestamp());
 
           if (consumer == null) {
-            LOG.warn("[{} / {}] this.consumer == null [size = {}, current = {}, oldest = {}]", connection, consumer, checkpointMark.size(), currentTimestamp, checkpointMark.getOldestMessageTimestamp());
-            return false;
+            LOG.warn("[{} / {} / {}] this.consumer == null [size = {}, current = {}, oldest = {}]", this, connection, consumer, checkpointMark.size(), currentTimestamp, checkpointMark.getOldestMessageTimestamp());
+            return start();
           }
 
         Message message = this.consumer.receiveNoWait();
 
-          LOG.info("[{} / {}] received {}", connection, consumer, message);
+          LOG.trace("[{} / {} / {}] received {}", this, connection, consumer, message);
 
         if (message == null) {
           currentMessage = null;
@@ -584,6 +584,7 @@ public class JmsIO {
 
         return true;
       } catch (Exception e) {
+        LOG.error("[{} / {} / {}] advance() failed", this, connection, consumer, e);
         throw new IOException(e);
       }
     }
@@ -631,7 +632,7 @@ public class JmsIO {
 
     @SuppressWarnings("FutureReturnValueIgnored")
     private void doClose() {
-      LOG.info("[{} / {}] doClose() called [size = {}, current = {}]", connection, consumer, checkpointMark.size(), currentTimestamp);
+      LOG.info("[{} / {} / {}] doClose() called [size = {}, current = {}]", this, connection, consumer, checkpointMark.size(), currentTimestamp);
       try {
         closeAutoscaler();
         closeConsumer();
