@@ -580,7 +580,7 @@ public class JmsIO {
         checkpointMark.add(message);
 
         currentMessage = this.source.spec.getMessageMapper().mapMessage(message);
-        currentTimestamp = new Instant(message.getJMSTimestamp());
+        currentTimestamp = Instant.now();
 
         return true;
       } catch (Exception e) {
