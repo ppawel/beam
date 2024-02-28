@@ -71,6 +71,7 @@ import org.apache.beam.runners.core.metrics.MonitoringInfoConstants;
 import org.apache.beam.runners.core.metrics.ServiceCallMetric;
 import org.apache.beam.sdk.PipelineRunner;
 import org.apache.beam.sdk.coders.StringUtf8Coder;
+import org.apache.beam.sdk.coders.VoidCoder;
 import org.apache.beam.sdk.extensions.gcp.options.GcpOptions;
 import org.apache.beam.sdk.extensions.gcp.util.RetryHttpRequestInitializer;
 import org.apache.beam.sdk.metrics.Counter;
@@ -89,6 +90,7 @@ import org.apache.beam.sdk.transforms.SimpleFunction;
 import org.apache.beam.sdk.transforms.View;
 import org.apache.beam.sdk.transforms.display.DisplayData;
 import org.apache.beam.sdk.transforms.display.HasDisplayData;
+import org.apache.beam.sdk.transforms.windowing.BoundedWindow;
 import org.apache.beam.sdk.util.BackOff;
 import org.apache.beam.sdk.util.BackOffUtils;
 import org.apache.beam.sdk.util.FluentBackoff;
@@ -97,7 +99,6 @@ import org.apache.beam.sdk.values.KV;
 import org.apache.beam.sdk.values.PBegin;
 import org.apache.beam.sdk.values.PCollection;
 import org.apache.beam.sdk.values.PCollectionView;
-import org.apache.beam.sdk.values.PDone;
 import org.apache.beam.sdk.values.TypeDescriptor;
 import org.apache.beam.vendor.guava.v32_1_2_jre.com.google.common.annotations.VisibleForTesting;
 import org.apache.beam.vendor.guava.v32_1_2_jre.com.google.common.base.MoreObjects;
@@ -1309,7 +1310,7 @@ public class DatastoreV1 {
    * idempotent Cloud Datastore mutation operations (upsert and delete) should be used by the {@code
    * DoFn} provided, as the commits are retried when failures occur.
    */
-  private abstract static class Mutate<T> extends PTransform<PCollection<T>, PDone> {
+  private abstract static class Mutate<T> extends PTransform<PCollection<T>, PCollection<Void>> {
 
     protected ValueProvider<String> projectId;
     protected @Nullable String localhost;
@@ -1338,7 +1339,7 @@ public class DatastoreV1 {
     }
 
     @Override
-    public PDone expand(PCollection<T> input) {
+    public PCollection<Void> expand(PCollection<T> input) {
       checkArgument(projectId != null, "withProjectId() is required");
       if (projectId.isAccessible()) {
         checkArgument(projectId.get() != null, "projectId can not be null");
@@ -1371,10 +1372,9 @@ public class DatastoreV1 {
                 "Enforce ramp-up through throttling",
                 ParDo.of(rampupThrottlingFn).withSideInputs(startTimestampView));
       }
-      intermediateOutput.apply(
-          "Write Mutation to Datastore", ParDo.of(new DatastoreWriterFn(projectId, localhost)));
-
-      return PDone.in(input.getPipeline());
+      return intermediateOutput.apply(
+              "Write Mutation to Datastore", ParDo.of(new DatastoreWriterFn(projectId, localhost)))
+          .setCoder(VoidCoder.of());
     }
 
     @Override
@@ -1489,6 +1489,7 @@ public class DatastoreV1 {
     private int mutationsSize = 0; // Accumulated size of protos in mutations.
     private WriteBatcher writeBatcher;
     private transient AdaptiveThrottler adaptiveThrottler;
+    private transient BoundedWindow lastWindow;
     private final Counter throttlingMsecs =
         Metrics.counter(DatastoreWriterFn.class, "throttling-msecs");
     private final Counter rpcErrors =
@@ -1558,7 +1559,7 @@ public class DatastoreV1 {
     }
 
     @ProcessElement
-    public void processElement(ProcessContext c) throws Exception {
+    public void processElement(ProcessContext c, BoundedWindow window) throws Exception {
       Mutation mutation = c.element();
       int size = mutation.getSerializedSize();
 
@@ -1575,12 +1576,19 @@ public class DatastoreV1 {
       if (mutations.size() >= writeBatcher.nextBatchSize(System.currentTimeMillis())) {
         flushBatch();
       }
+
+      if (lastWindow == null || window.maxTimestamp().isAfter(lastWindow.maxTimestamp())) {
+        lastWindow = window;
+      }
     }
 
     @FinishBundle
-    public void finishBundle() throws Exception {
+    public void finishBundle(FinishBundleContext context) throws Exception {
       if (!mutations.isEmpty()) {
         flushBatch();
+      }
+      if (lastWindow != null) {
+        context.output(null, lastWindow.maxTimestamp(), lastWindow);
       }
     }
 
