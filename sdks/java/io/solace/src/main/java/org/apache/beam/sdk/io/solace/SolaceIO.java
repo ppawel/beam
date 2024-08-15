@@ -46,6 +46,7 @@ import org.apache.beam.sdk.values.PCollection;
 import org.apache.beam.sdk.values.TypeDescriptor;
 import org.apache.beam.vendor.guava.v32_1_2_jre.com.google.common.annotations.VisibleForTesting;
 import org.checkerframework.checker.nullness.qual.Nullable;
+import org.joda.time.Duration;
 import org.joda.time.Instant;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -208,6 +209,15 @@ public class SolaceIO {
         }
       };
   private static final boolean DEFAULT_DEDUPLICATE_RECORDS = false;
+  private static final Duration DEFAULT_WATERMARK_IDLE_DURATION_THRESHOLD =
+      Duration.standardSeconds(30);
+  public static final int DEFAULT_WRITER_MAX_NUMBER_OF_WORKERS = 20;
+  public static final int DEFAULT_WRITER_CLIENTS_PER_WORKER = 4;
+  public static final Boolean DEFAULT_WRITER_PUBLISH_LATENCY_METRICS = false;
+  public static final SubmissionMode DEFAULT_WRITER_SUBMISSION_MODE =
+      SubmissionMode.HIGHER_THROUGHPUT;
+  public static final DeliveryMode DEFAULT_WRITER_DELIVERY_MODE = DeliveryMode.DIRECT;
+  public static final WriterType DEFAULT_WRITER_TYPE = WriterType.BATCHED;
 
   /** Get a {@link Topic} object from the topic name. */
   static Topic topicFromName(String topicName) {
@@ -247,7 +257,8 @@ public class SolaceIO {
             .setTypeDescriptor(TypeDescriptor.of(Solace.Record.class))
             .setParseFn(SolaceRecordMapper::map)
             .setTimestampFn(SENDER_TIMESTAMP_FUNCTION)
-            .setDeduplicateRecords(DEFAULT_DEDUPLICATE_RECORDS));
+            .setDeduplicateRecords(DEFAULT_DEDUPLICATE_RECORDS)
+            .setWatermarkIdleDurationThreshold(DEFAULT_WATERMARK_IDLE_DURATION_THRESHOLD));
   }
   /**
    * Create a {@link Read} transform, to read from Solace. Specify a {@link SerializableFunction} to
@@ -274,7 +285,8 @@ public class SolaceIO {
             .setTypeDescriptor(typeDescriptor)
             .setParseFn(parseFn)
             .setTimestampFn(timestampFn)
-            .setDeduplicateRecords(DEFAULT_DEDUPLICATE_RECORDS));
+            .setDeduplicateRecords(DEFAULT_DEDUPLICATE_RECORDS)
+            .setWatermarkIdleDurationThreshold(DEFAULT_WATERMARK_IDLE_DURATION_THRESHOLD));
   }
 
   public static class Read<T> extends PTransform<PBegin, PCollection<T>> {
@@ -326,6 +338,19 @@ public class SolaceIO {
      */
     public Read<T> withMaxNumConnections(Integer maxNumConnections) {
       configurationBuilder.setMaxNumConnections(maxNumConnections);
+      return this;
+    }
+
+    /**
+     * Optional. Denotes the duration for which the watermark can be idle. If there are no incoming
+     * messages for this ‘idle’ period of time, the watermark is set to a timestamp representing a
+     * time earlier than now by the ‘idle’ period of time (e.g. if the ‘idle’ period of time is set
+     * to 30 seconds, and there is no new data incoming for 30 seconds, the watermark will be set to
+     * max(currentWatermark, now() - 30 seconds). The default watermark idle duration threshold is
+     * {@link #DEFAULT_WATERMARK_IDLE_DURATION_THRESHOLD}.
+     */
+    public Read<T> withWatermarkIdleDurationThreshold(Duration idleDurationThreshold) {
+      configurationBuilder.setWatermarkIdleDurationThreshold(idleDurationThreshold);
       return this;
     }
 
@@ -441,6 +466,8 @@ public class SolaceIO {
 
       abstract TypeDescriptor<T> getTypeDescriptor();
 
+      abstract Duration getWatermarkIdleDurationThreshold();
+
       public static <T> Builder<T> builder() {
         Builder<T> builder =
             new org.apache.beam.sdk.io.solace.AutoValue_SolaceIO_Read_Configuration.Builder<T>();
@@ -468,6 +495,8 @@ public class SolaceIO {
         abstract Builder<T> setSessionServiceFactory(SessionServiceFactory sessionServiceFactory);
 
         abstract Builder<T> setTypeDescriptor(TypeDescriptor<T> typeDescriptor);
+
+        abstract Builder<T> setWatermarkIdleDurationThreshold(Duration idleDurationThreshold);
 
         abstract Configuration<T> build();
       }
@@ -505,6 +534,7 @@ public class SolaceIO {
                   configuration.getDeduplicateRecords(),
                   coder,
                   configuration.getTimestampFn(),
+                  configuration.getWatermarkIdleDurationThreshold(),
                   configuration.getParseFn())));
     }
 
